@@ -1,0 +1,268 @@
+<!-- templates/index.html -->
+
+<html>
+<head>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
+    
+    <title>Football Dashboard</title>
+
+    <style>
+        @keyframes textColorChange {
+            0% { color: inherit; }
+            50% { color: green; }
+            100% { color: inherit; }
+        }
+
+        .text-pulsating {
+            animation: textColorChange 1s infinite;
+        }
+        .match {
+            color: inherit;
+        }
+        .match:hover {
+            color: grey;
+            cursor: pointer;
+        }
+        .selected {
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="app">
+    <div class="container">
+        <p><span v-text="predictions.length"></span> matches</p>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="mb-3" v-for="match in predictions">
+                    <p class="mb-1" v-text="match.match_date"></span> <span v-text="match.match_time"></p>
+                    <p class="mb-1" v-bind:class="{ 'selected' : isSelectedMatch(match) }">
+                        ➡️ 
+                        <strong v-on:click="selectMatch(match)" class="match">
+                            <span v-text="match.match_hometeam_name"></span> - <span v-text="match.match_awayteam_name"></span>
+                        </strong>
+                        <span v-if="hasScore(match)">
+                            (<span v-text="match.hometeam_halftime_score"></span> - <span v-text="match.awayteam_halftime_score"></span>)
+                            <span v-text="match.hometeam_score"></span> - <span v-text="match.awayteam_score"></span>
+                        </span>
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="row align-items-center mb-3">
+                    <div class="col-md-3">
+                        <span v-if="selectedMatch" v-text="selectedMatch.match_hometeam_name + ' - ' + selectedMatch.match_awayteam_name"></span>
+                    </div>
+
+                    <div class="btn-group col-md-9" role="group">
+                        <button type="button" class="btn btn-secondary" v-on:click="setState(0)">Standings</button>
+                        <button type="button" class="btn btn-secondary" v-on:click="setState(1)">Predictions</button>
+                        <button type="button" class="btn btn-secondary" v-on:click="setState(2)">Form</button>
+                    </div>
+                </div>
+
+                <table class="table" v-if="isStandingState">
+                    <thead>
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">Team</th>
+                            <th scope="col">W</th>
+                            <th scope="col">D</th>
+                            <th scope="col">L</th>
+                            <th scope="col">GF</th>
+                            <th scope="col">GA</th>
+                            <th scope="col">GD</th>
+                            <th scope="col">Pts</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="team in sortedStandings" v-bind:class="{ 'selected' : isSelectedInStandings(team) }">
+                            <th scope="row" v-text="team.position"></th>
+                            <td v-text="team.team_name"></td>
+                            <td v-text="team.league_W"></td>
+                            <td v-text="team.league_D"></td>
+                            <td v-text="team.league_L"></td>
+                            <td v-text="team.league_GF"></td>
+                            <td v-text="team.league_GA"></td>
+                            <td v-text="goalDiff(team)"></td>
+                            <td v-text="team.league_PTS"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <table class="table" v-if="isPredictionState">
+                    <thead>
+                        <tr>
+                            <th class="text-center" scope="col"></th>
+                            <th class="text-center" scope="col" v-text="selectedMatch.match_hometeam_name"></th>
+                            <th class="text-center" scope="col">-</th>
+                            <th class="text-center" scope="col" v-text="selectedMatch.match_awayteam_name"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-center">Final</td>
+                            <td class="text-center" v-text="selectedMatch.prob_HW"></td>
+                            <td class="text-center" v-text="selectedMatch.prob_D"></td>
+                            <td class="text-center" v-text="selectedMatch.prob_AW"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div v-if="isFormState" class="row">
+                    <div class="col-md-6" v-for="(team, key) in head2head">
+                        <p>
+                            <span v-text="key"></span> ➡️ <span v-text="team.form"></span>
+                        </p>
+
+                        <p v-for="match in team.matches">
+                            <span v-text="match.match_date" class="font-italic"></span> - 
+                            <span v-text="match.match_hometeam_name" v-bind:class="{ 'selected' : match.match_hometeam_name === key }"></span> - <span v-text="match.match_awayteam_name" v-bind:class="{ 'selected' : match.match_awayteam_name === key }"></span>
+                            <span v-text="match.match_hometeam_score"></span> - <span v-text="match.match_awayteam_score"></span> 
+                            (<span v-text="match.match_hometeam_halftime_score"></span> - <span v-text="match.match_awayteam_halftime_score"></span>)
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+
+var app = new Vue({
+    el: '#app',
+    data: {
+        predictions: [],
+        standings: [],
+        selectedMatch: null,
+        state: 0,
+        head2head: null
+    },
+    computed: {
+        sortedStandings: function()
+        {
+            if(this.standings.length === 0)
+            {
+                return []
+            }
+            return this.standings.sort(this.comparePosition)
+        },
+        isStandingState: function()
+        {
+            return this.state === 0
+        },
+        isPredictionState: function()
+        {
+            return this.state === 1 && this.selectedMatch !== null
+        },
+        isFormState: function()
+        {
+            return this.state === 2 && this.selectedMatch !== null
+        }
+    },
+    methods: {
+        isLive: function(value)
+        {
+            return value === 1 ? true : false
+        },
+        hasScore: function(match)
+        {
+            return match.match_hometeam_score === "" || match.match_awayteam_score === "" ? false : true
+        },
+        comparePosition: function(a, b) 
+        {
+            const positionA = parseInt(a.position, 10)
+            const positionB = parseInt(b.position, 10)
+
+            let comparison = 0
+            if(positionA > positionB) 
+            {
+                comparison = 1
+            } else if(positionA < positionB) {
+                comparison = -1
+            }
+            return comparison
+        },
+        goalDiff: function(team)
+        {
+            return team.league_GF - team.league_GA
+        },
+        selectMatch: async function(match)
+        {
+            this.selectedMatch = match
+            if(this.selectedMatch !== null)
+            {
+                this.head2head = await this.getForm(this.selectedMatch.match_hometeam_name, this.selectedMatch.match_awayteam_name)
+            }
+        },
+        setState: function(state)
+        {
+            this.state = state
+        },
+        isSelectedMatch: function(match)
+        {
+            if(this.selectedMatch === null)
+            {
+                return false
+            }
+            return this.selectedMatch.match_id === match.match_id
+        },
+        isSelectedInStandings: function(team)
+        {
+            if(this.selectedMatch === null)
+            {
+                return false
+            }
+            return team.team_name === this.selectedMatch.match_hometeam_name || team.team_name === this.selectedMatch.match_awayteam_name
+        },
+        syncData: async function()
+        {
+            try {
+                let predictions = await axios.get("http://localhost:8081/predictions")
+                let standings = await axios.get("http://localhost:8081/standings")
+                this.predictions = predictions.data
+                this.standings = standings.data
+                console.log(this.predictions)
+                console.log(this.standings)
+            } catch(error) {
+                console.error(error)
+            }
+        },
+        sleep: function(ms) 
+        {
+            return new Promise((resolve)=> {
+                setTimeout(resolve, ms)
+            })
+        },
+        getForm: async function(team1, team2)
+        {
+            try {
+                let h2h = await axios.get("http://localhost:8081/head2head?team1=" + team1 + "&team2=" + team2)
+                console.log(h2h.data)
+                return h2h.data
+            } catch(error) {
+                console.error(error)
+            }
+        }
+    },
+    mounted: async function()
+    {
+        while(true)
+        {
+            await this.syncData()
+            await this.sleep(5000)
+        }
+    }
+})
+
+</script>
+
+</body>
+</html>

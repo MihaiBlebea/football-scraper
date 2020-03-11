@@ -1,0 +1,66 @@
+version: "3.7"
+
+services:
+    dashboard:
+        image: "serbanblebea/football-dashboard:latest"
+        build: "./dashboard"
+        container_name: "dashboard"
+        deploy:
+            replicas: 3
+        networks:
+            - "frontend"
+        ports:
+            - "8081:8081"
+    scraper:
+        image: "serbanblebea/football-scraper:latest"
+        build: "./scraper"
+        container_name: "scraper"
+        deploy:
+            replicas: 1
+            restart_policy:
+                condition: on-failure
+                delay: 5s
+                max_attempts: 5
+                window: 120s
+        networks:
+            - "backend"
+        depends_on:
+            - "db"
+            - "redis"
+        restart: "on-failure"
+    worker:
+        image: "serbanblebea/football-worker:latest"
+        build: "./worker"
+        container_name: "worker"
+        networks: 
+            - "backend"
+    redis:
+        image: "redis:latest"
+        container_name: "redis"
+        ports:
+            - "6379:6379"
+        networks:
+            - "frontend"
+            - "backend"
+    db:
+        image: "mariadb:latest"
+        container_name: "db"
+        ports:
+            - "3306:3306"
+        networks:
+            - "backend"
+        environment:
+            - MYSQL_ROOT_PASSWORD=root
+            - MYSQL_DATABASE=db
+            - MYSQL_USER=admin
+            - MYSQL_PASSWORD=pass
+    monitor:
+        image: "prom/prometheus"
+        ports:
+            - "9090:9090"
+
+networks:
+    frontend:
+        driver: "overlay"
+    backend:
+        driver: "overlay"
